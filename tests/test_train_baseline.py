@@ -88,8 +88,128 @@ def test_writes_json_log(tmp_path):
 
     out_path = tmp_path / "log.json"
     args = _make_args(out=str(out_path))
-    train(args)
+    result = train(args)
 
     payload = json.loads(out_path.read_text())
     assert payload["device"] == "cpu"
     assert len(payload["history"]) == args.steps
+    # Full content check, not just presence: config round-trips, and per-step
+    # numbers in the JSON match the in-memory result exactly.
+    assert payload["num_params"] == result.num_params
+    assert payload["config"]["steps"] == args.steps
+    assert payload["config"]["batch_size"] == args.batch_size
+    assert payload["total_time_s"] >= 0
+    for row, record in zip(payload["history"], result.history):
+        assert row["step"] == record.step
+        assert row["loss"] == pytest.approx(record.loss)
+        assert row["tokens_per_sec"] == pytest.approx(record.tokens_per_sec)
+
+
+def test_csv_log_content_matches_history(tmp_path):
+    # Parse the CSV for real (not just header/line-count) and check every
+    # row's values against the in-memory history, with correct types.
+    import csv
+
+    out_path = tmp_path / "log.csv"
+    args = _make_args(out=str(out_path))
+    result = train(args)
+
+    with out_path.open(newline="") as f:
+        rows = list(csv.reader(f))
+
+    header, data_rows = rows[0], rows[1:]
+    assert header == ["step", "loss", "step_time_s", "tokens_per_sec"]
+    assert len(data_rows) == len(result.history)
+    for row, record in zip(data_rows, result.history):
+        assert int(row[0]) == record.step
+        assert float(row[1]) == pytest.approx(record.loss)
+        assert float(row[2]) == pytest.approx(record.step_time_s)
+        assert float(row[3]) == pytest.approx(record.tokens_per_sec)
+
+
+def test_out_path_without_json_suffix_defaults_to_csv(tmp_path):
+    # _write_log's branch is "if suffix == '.json' else csv" -- lock in that
+    # an extensionless/unknown-suffix --out still produces a parseable CSV,
+    # not something silently malformed.
+    out_path = tmp_path / "log.dat"
+    args = _make_args(out=str(out_path))
+    train(args)
+
+    lines = out_path.read_text().strip().splitlines()
+    assert lines[0] == "step,loss,step_time_s,tokens_per_sec"
+    assert len(lines) == args.steps + 1
+
+
+def test_same_seed_is_reproducible():
+    # Same seed/config should give bit-identical loss curves -- this is what
+    # later phases (DDP/FSDP) will rely on to isolate "did parallelism change
+    # the math" from "did we just get a different random draw".
+    args_a = _make_args(seed=123)
+    args_b = _make_args(seed=123)
+    result_a = train(args_a)
+    result_b = train(args_b)
+
+    losses_a = [r.loss for r in result_a.history]
+    losses_b = [r.loss for r in result_b.history]
+    assert losses_a == pytest.approx(losses_b)
+
+
+def test_different_seeds_diverge():
+    args_a = _make_args(seed=1)
+    args_b = _make_args(seed=2)
+    result_a = train(args_a)
+    result_b = train(args_b)
+
+    losses_a = [r.loss for r in result_a.history]
+    losses_b = [r.loss for r in result_b.history]
+    assert losses_a != pytest.approx(losses_b)
+
+
+def test_cli_arg_parsing_defaults():
+    args = build_arg_parser().parse_args([])
+    assert args.steps == 20
+    assert args.batch_size == 8
+    assert args.block_size == 32
+    assert args.d_model == 32
+    assert args.n_layer == 2
+    assert args.n_head == 2
+    assert args.dropout == 0.0
+    assert args.lr == pytest.approx(3e-4)
+    assert args.device == "auto"
+    assert args.out is None
+
+
+def test_cli_arg_parsing_overrides():
+    args = build_arg_parser().parse_args(
+        [
+            "--steps", "5",
+            "--batch-size", "2",
+            "--block-size", "8",
+            "--d-model", "8",
+            "--n-layer", "1",
+            "--n-head", "1",
+            "--dropout", "0.1",
+            "--lr", "0.01",
+            "--seed", "7",
+            "--log-every", "1",
+            "--device", "cpu",
+            "--out", "run.csv",
+        ]
+    )
+    assert args.steps == 5
+    assert args.batch_size == 2
+    assert args.block_size == 8
+    assert args.d_model == 8
+    assert args.n_layer == 1
+    assert args.n_head == 1
+    assert args.dropout == pytest.approx(0.1)
+    assert args.lr == pytest.approx(0.01)
+    assert args.seed == 7
+    assert args.log_every == 1
+    assert args.device == "cpu"
+    assert args.out == "run.csv"
+
+
+def test_cli_rejects_invalid_device_choice():
+    with pytest.raises(SystemExit):
+        build_arg_parser().parse_args(["--device", "tpu"])
