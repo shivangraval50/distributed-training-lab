@@ -32,7 +32,7 @@ See PLAN.md for the phased build. Phase 1 (single-device baseline) is implemente
 ## Results
 | Metric | Value |
 | ------ | ----- |
-| CPU smoke test (28K params, 300 steps, M2/8GB) | Runs correctly; loss drops 3.46 -> 0.82 over 300 steps (sanity check only, not a benchmark). |
+| CPU smoke test (28K params, 300 steps, M2/8GB) | Runs correctly; loss drops 3.4565 -> 0.9396 over 300 steps (sanity check only, not a benchmark). Log: `logs/phase1_cpu_smoke_300steps.csv`. |
 | MPS smoke test | Runs correctly (few steps). |
 | Single T4 GPU (Kaggle) throughput/loss | TODO -- not yet measured. Script is ready: `notebooks/kaggle_single_gpu_baseline.py`. |
 | DDP / FSDP / TP / scaling efficiency | TODO -- later phases. |
