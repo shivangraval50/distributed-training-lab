@@ -70,7 +70,8 @@ Each phase is independently verifiable. Check off as completed.
     with 1 stage, rank 0 is simultaneously first+last, requiring a dedicated
     `PPSingleStage` module). Ready-to-run remote script:
     `notebooks/kaggle_pp_2gpu.py`.
-  - Full test suite: 58 passed (`python3 -m pytest tests/ -q`).
+  - Full test suite as of this phase: 58 passed (`python3 -m pytest tests/ -q`);
+    see Phase 5 below for the current total (more tests added since).
   - TODO: run both on Kaggle (both T4s, nccl) for the real 2-GPU
     throughput/scaling numbers before treating either as more than a
     CPU/gloo correctness proof. See README.md Results.
@@ -107,4 +108,22 @@ Each phase is independently verifiable. Check off as completed.
     `notebooks/kaggle_profiling_2gpu.py` on Kaggle's 2xT4 for the real
     numbers before treating any scaling-efficiency claim as measured. See
     README.md Results/Limitations.
-- [ ] Honest writeup (2 GPUs, not a cluster)
+- [x] Honest writeup (2 GPUs, not a cluster)
+  - README's Problem section filled in (was a bare TODO placeholder): states plainly this is
+    a portfolio/learning exercise in distributed-training mechanics at toy scale, not a
+    production system or research contribution, on hardware that's deliberately not a
+    datacenter (8GB M2 laptop for correctness, Kaggle's free 2xT4 -- not a cluster -- for any
+    real scale).
+  - Added a "Status / what's real right now" section to README.md (a table across all 5
+    build phases: mechanism, CPU/gloo-verified [yes for all 5], real GPU numbers [TODO for
+    all 5], exact Kaggle script) as the bird's-eye summary the detailed per-phase Approach/
+    Results sections don't provide on their own.
+  - Definition of done for this phase (per the build-methodology skill: a real, checkable
+    deliverable, unlike the GPU phases) is the README honestly reflecting full project
+    status -- done; no code changed, no numbers invented.
+  - TODO (outstanding, project-wide): literally every GPU-scale claim in this repo is still
+    TODO. The 6 ready-to-run Kaggle notebook scripts that need to actually be executed on
+    Kaggle's 2xT4 before any real GPU number exists anywhere in this repo:
+    `notebooks/kaggle_single_gpu_baseline.py`, `notebooks/kaggle_ddp_2gpu.py`,
+    `notebooks/kaggle_fsdp_2gpu.py`, `notebooks/kaggle_tp_2gpu.py`,
+    `notebooks/kaggle_pp_2gpu.py`, `notebooks/kaggle_profiling_2gpu.py`.

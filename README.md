@@ -8,7 +8,22 @@
 > The point is the mechanics and honest measurement, not raw scale.
 
 ## Problem
-<!-- TODO: the real problem this solves and why it matters. -->
+This is a portfolio/learning exercise, not a production system or a novel research
+contribution: the real question it explores is what it actually, mechanically takes to make
+a model train across more than one device, and where the added complexity and overhead
+really come from as you move from replicating the whole model per-device (DDP), to sharding
+the model's parameters/optimizer state across devices while still replicating data (FSDP),
+to sharding individual layers' weights (tensor parallelism), to sharding the model's layers
+themselves across devices (pipeline parallelism). It's deliberately built on hardware that is
+NOT a datacenter -- an 8GB M2 laptop with no local GPU for correctness work, and Kaggle's free
+2xT4 (not a cluster) for anything at real GPU scale -- because the hardware constraint is the
+point: proving each mechanism actually works with the free/small hardware available, rather
+than assuming it away with a bigger machine. What a reader should get out of this repo: a
+working, tested proof of each parallelism strategy's actual mechanism (real PyTorch
+distributed/FSDP/DTensor/pipelining APIs, not hand-rolled stand-ins), honestly measured on
+whatever hardware was actually used to run it -- CPU/gloo correctness today, 2xT4/nccl
+throughput and memory numbers only once those Kaggle runs have actually happened (see Status
+below for exactly what that split is right now).
 
 ## Approach
 See PLAN.md for the phased build. Phase 1 (single-device baseline) is implemented:
@@ -235,6 +250,31 @@ cannot produce a meaningful scaling-efficiency, comms-overhead-%, or
 memory-savings NUMBER, since that requires actual multi-GPU throughput/
 memory. No such number exists anywhere in this repo yet; `notebooks/
 kaggle_profiling_2gpu.py` is ready but has not been executed.
+
+## Status / what's real right now
+The bird's-eye version, before the detailed Approach/Results above and below: every phase's
+*mechanism* is real code, exercised by real multi-process tests on CPU/gloo (no GPU used or
+needed for correctness). Every phase's *GPU number* is TODO -- this repo has never run on a
+GPU of any kind, let alone 2. Per PLAN.md's Phase 6 title, "2 GPUs, not a cluster": nothing
+in this repo claims or measures anything beyond Kaggle's free 2xT4, and even that hasn't
+happened yet.
+
+| Phase | Mechanism | Local correctness verified | Real GPU numbers | Kaggle script |
+| ----- | --------- | --------------------------- | ----------------- | -------------- |
+| 1. Single-GPU baseline | `train_baseline.py` | Yes (CPU/MPS smoke test) | TODO | `notebooks/kaggle_single_gpu_baseline.py` |
+| 2. DDP (data parallel) | `train_ddp.py` | Yes (2/3-rank gloo) | TODO | `notebooks/kaggle_ddp_2gpu.py` |
+| 3. FSDP (ZeRO-style sharding) | `train_fsdp.py` | Yes (2/3-rank gloo) | TODO | `notebooks/kaggle_fsdp_2gpu.py` |
+| 4a. Tensor parallelism | `train_tp.py` | Yes (2/3-rank gloo) | TODO | `notebooks/kaggle_tp_2gpu.py` |
+| 4b. Pipeline parallelism | `train_pp.py` | Yes (2/3-rank gloo) | TODO | `notebooks/kaggle_pp_2gpu.py` |
+| 5. Profiling (comm/compute classifier) | `profile_run.py` | Yes (classifier distinguishes strategies on gloo) | TODO | `notebooks/kaggle_profiling_2gpu.py` |
+
+What running each of those 6 scripts on Kaggle's 2xT4 would actually show (not what it "should"
+or is "expected" to show, since that isn't known): real single- and dual-T4 throughput and loss
+curves; whether DDP's allreduce, FSDP's extra all-gather/reduce-scatter traffic, TP's per-block
+all_reduce, and PP's cross-stage send/recv behave the way their CPU/gloo mechanics predict once
+real nccl and real GPU memory/interconnect are involved; and whatever the profiler's comm/compute
+classifier reports for comms-overhead percentage and peak memory per strategy on real hardware.
+None of that is known yet -- see Results and Limitations below for the exact TODOs.
 
 ## Results
 | Metric | Value |
