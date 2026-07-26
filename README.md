@@ -109,6 +109,70 @@ Phase 3 (FSDP / ZeRO-style sharding) is implemented:
   anything but exactly 2 GPUs, and writes a JSON summary for the real
   memory/throughput picture vs the Phase 1 baseline and Phase 2 DDP.
 
+Phase 4 (tensor + pipeline parallelism) is implemented:
+
+- Phase 4a, tensor parallelism (TP) -- `train_tp.py` + `src/tensor_parallel.py`
+  use the REAL `torch.distributed.tensor` (DTensor) `ColwiseParallel`/
+  `RowwiseParallel` + `DeviceMesh` API, not a hand-rolled stand-in for the
+  collectives. Step 1 of this phase found that API works and is numerically
+  correct on CPU/gloo for plain `nn.Linear`-based modules, but does NOT
+  extend to TinyGPT's actual attention module: `nn.MultiheadAttention`
+  packs Q/K/V into one fused `in_proj_weight` `nn.Parameter`, not separate
+  `nn.Linear` submodules, and `parallelize_module`'s plan mechanism only
+  targets named `Linear`/`Embedding` submodules -- pointing a plan at the
+  string `"in_proj_weight"` silently no-ops (PyTorch warns, doesn't error).
+  This is a genuine limitation of applying the API to
+  `nn.MultiheadAttention` specifically (would reproduce on GPU identically),
+  and is exactly why production TP frameworks (Megatron-LM, torchtitan, HF)
+  define their own attention modules instead of using
+  `nn.MultiheadAttention`. So this phase does the same: `TPTinyGPT`
+  (`src/tensor_parallel.py`) is a numerically-equivalent rewrite with
+  explicit `wq`/`wk`/`wv`/`wo` `nn.Linear`s, Colwise-sharded on Q/K/V/`fc1`
+  (head-/hidden-dim-parallel, no communication) and Rowwise-sharded on
+  `wo`/`fc2` (implicit `all_reduce` on the way out) -- the standard Megatron
+  attention+MLP TP plan, using only the library's own default layouts. The
+  vocab/position embeddings, both LayerNorms, and the LM head stay fully
+  replicated on every rank (not sharded) -- see Limitations.
+- Correctness, verified locally without any GPU (`tests/test_train_tp.py`,
+  real 2- and 3-process `gloo` runs via `torch.multiprocessing.spawn`):
+  (a) each rank's local sharded-parameter count matches an independently
+  computed exact expectation (not just "less than the full model"); (b)
+  every rank's per-step loss is bit-identical across ranks -- the correct TP
+  invariant, and the *opposite* of DDP/FSDP's "losses differ, weights
+  match" invariant, since TP replicates data and shards the model rather
+  than the reverse; (c) the TP-sharded model's final, fully-materialized
+  weights match an independent single-process TinyGPT reference trained
+  end to end on identical initial weights/data/hyperparameters, to within
+  ~3e-7 (float32 noise). Also verified with 3 ranks. Remote (real 2-GPU)
+  run: `notebooks/kaggle_tp_2gpu.py`.
+- Phase 4b, pipeline parallelism (PP) -- `train_pp.py` +
+  `src/pipeline_model.py` use the REAL `torch.distributed.pipelining`
+  (`PipelineStage` + `ScheduleGPipe`), with real `dist.send`/`dist.recv` of
+  activations/gradients between OS processes. Unlike TP, this needed NO
+  architecture rewrite: PP splits the model at LAYER boundaries (a sequence
+  of whole `nn.Module`s), so TinyGPT's actual, unmodified transformer
+  blocks are sliced by layer index (`stage_layer_ranges`, same "last stage
+  absorbs the remainder" convention Phase 2/3 use for data shards) into
+  per-stage modules that share the exact same parameter objects as the
+  source model, not copies. A world_size=1 degenerate bug was found and
+  fixed during this build: with 1 stage, rank 0 is simultaneously first and
+  last, and the original first/last/middle branching didn't handle that
+  overlap (silently producing d_model-sized output instead of vocab-sized
+  logits); a dedicated `PPSingleStage` module now handles it.
+- Correctness, verified locally without any GPU (`tests/test_train_pp.py`,
+  real 2- and 3-process `gloo` runs): (a) each stage's layer range is
+  disjoint, contiguous, and covers every layer exactly once across ranks;
+  (b) each rank's local parameter count matches an independently computed
+  expectation, and (since PP shards layers with no replication, unlike
+  DDP/FSDP/TP) the sum across all ranks equals the full model's parameter
+  count exactly; (c) final trained per-stage weights match an independent
+  single-process TinyGPT reference to within ~5.7e-5 (2 ranks, 15 steps) /
+  ~6.3e-5 (3 ranks, 10 steps) -- real, measured noise from compounded AdamW
+  steps on top of the ~1e-8 per-step gradient noise already found at the
+  raw pipelining-API level (`.probe/pp_probe3.py`/`pp_probe4.py`); (d) the
+  world_size=1 degenerate case also matches the same reference. Remote
+  (real 2-GPU) run: `notebooks/kaggle_pp_2gpu.py`.
+
 ## Results
 | Metric | Value |
 | ------ | ----- |
@@ -119,7 +183,10 @@ Phase 3 (FSDP / ZeRO-style sharding) is implemented:
 | DDP 2xT4 GPU (Kaggle) throughput/speedup | TODO -- not yet measured. Script is ready: `notebooks/kaggle_ddp_2gpu.py`. |
 | FSDP CPU/gloo sharding correctness (2 ranks, 25 steps, 27,776-param model, `FULL_SHARD`) | Verified: each rank's local shard held exactly 13,888/27,776 params (50.0%) and 27,777 optimizer-state elements (vs. 55,552 = `2 x full_params` if unsharded) -- real ZeRO-3-style partitioning, not just "it ran." Ranks trained on disjoint shards (`[0:2520)` / `[2520:5040)`) with per-rank param sums starting different (rank0=220.2962, rank1=185.5377 pre-broadcast) and identical after the manual broadcast (both 220.2962); per-step loss differed throughout (e.g. final loss rank0=3.1668 vs rank1=3.1626); after training, the fully-materialized (unsharded) model was bit-identical across ranks (`torch.equal` on every parameter tensor). Also verified with 3 ranks. See `tests/test_train_fsdp.py`. |
 | FSDP 2xT4 GPU (Kaggle) memory/throughput vs DDP | TODO -- not yet measured; `train_fsdp.py` also doesn't instrument peak memory yet. Script is ready: `notebooks/kaggle_fsdp_2gpu.py`. |
-| TP / scaling efficiency | TODO -- later phases. |
+| TP CPU/gloo correctness (2 ranks, 20-25 steps, real `ColwiseParallel`/`RowwiseParallel` + `DeviceMesh`) | Verified: each rank's local sharded-parameter count matched an independently computed exact expectation; every rank's per-step loss was bit-identical (correct TP invariant -- data replicated, model sharded); final trained weights matched an independent single-process reference to within ~3e-7 (float32 noise). Also verified with 3 ranks. See `tests/test_train_tp.py`. |
+| TP 2xT4 GPU (Kaggle) throughput/scaling | TODO -- not yet measured. Script is ready: `notebooks/kaggle_tp_2gpu.py`. |
+| PP CPU/gloo correctness (2 and 3 ranks, 10-15 steps, real `PipelineStage` + `ScheduleGPipe`) | Verified: layer ranges disjoint/contiguous across ranks; each rank's local parameter count matched an independently computed expectation (summing exactly to the full model's count, no replication); final trained per-stage weights matched an independent single-process reference to within 5.655e-05 (2 ranks, 15 steps) / 6.295e-05 (3 ranks, 10 steps); world_size=1 degenerate case also verified. See `tests/test_train_pp.py`. |
+| PP 2xT4 GPU (Kaggle) throughput/pipeline-bubble overlap | TODO -- not yet measured; no wall-clock overlap benefit has been measured even locally (2 CPU processes, blocking gloo P2P) -- that's a Kaggle-only question. Script is ready: `notebooks/kaggle_pp_2gpu.py`. |
 
 ## Limitations / what's unrealistic
 - Small scale by design: ~28K-param toy transformer locally, a few hundred K
@@ -180,3 +247,40 @@ Phase 3 (FSDP / ZeRO-style sharding) is implemented:
   replicate in full on one GPU, which a 28K-param model obviously never is.
   This phase exists to build and honestly verify the *mechanism*, not to
   claim FSDP is the right tool at this scale.
+- TP (Phase 4a) does NOT shard the vocab/position embeddings, either
+  LayerNorm, or the LM head -- they stay fully replicated on every rank.
+  Megatron also supports vocab-parallel embeddings; this repo doesn't
+  implement that, so TP's real memory savings here are limited to the
+  attention/MLP `Linear` weights, not the whole model. A real, documented
+  simplification, not something hidden.
+- TP (Phase 4a) required a full model rewrite (`TPTinyGPT`, explicit
+  wq/wk/wv/wo Linears) because `nn.MultiheadAttention`'s fused
+  `in_proj_weight` can't be targeted by `parallelize_module`'s plan
+  mechanism (it only matches named `Linear`/`Embedding` submodules). This
+  is a genuine limitation of the real API applied to that specific module,
+  not a CPU/gloo-only quirk -- it would reproduce identically on GPU. See
+  `src/tensor_parallel.py`'s module docstring for the empirical
+  investigation.
+- PP (Phase 4b) has NOT measured any pipeline-bubble/overlap benefit --
+  `ScheduleGPipe`'s schedule allows overlapping microbatch forward/backward
+  across stages, but on this machine (2 local CPU processes, blocking gloo
+  P2P) no wall-clock overlap was measured or claimed, only that the
+  multi-microbatch data flow and cross-process communication are real and
+  correct. Actual pipeline-bubble reduction from overlap is a throughput
+  question that needs the Kaggle 2xT4 run; `notebooks/kaggle_pp_2gpu.py`
+  is written and ready but has not been executed.
+- TP (Phase 4a) and PP (Phase 4b) correctness have only been verified on
+  CPU/gloo with tiny (tens-of-thousands-of-parameters) models over up to 25
+  steps and up to 3 ranks -- real GPU scaling numbers (throughput,
+  nccl comms overhead for TP's per-block all_reduce and PP's per-microbatch
+  send/recv) do not exist yet; `notebooks/kaggle_tp_2gpu.py` and
+  `notebooks/kaggle_pp_2gpu.py` are written and ready but have not been
+  executed. Do not read any 2xT4 TP/PP number into this repo until they
+  have.
+- Both Phase 4 local tests use `torch.multiprocessing.spawn`, not
+  `torchrun`, for the same reason as Phase 2/3: this dev sandbox's
+  `torchrun` elastic-launcher rendezvous resolves `socket.gethostname()`
+  (ignoring `MASTER_ADDR`) and hangs indefinitely on a broken local DNS
+  lookup, so `mp.spawn` was used instead for local verification. This is a
+  launcher-level sandbox quirk, not a bug in `train_tp.py`/`train_pp.py`'s
+  distributed logic.

@@ -1,0 +1,3 @@
+[rank 1] pipelining step OK, out shape torch.Size([4, 8])
+[rank 1] torch.distributed.pipelining ran without error
+[rank 0] torch.distributed.pipelining ran without error

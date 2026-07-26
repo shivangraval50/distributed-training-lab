@@ -39,6 +39,40 @@ Each phase is independently verifiable. Check off as completed.
   - TODO: run on Kaggle (both T4s, nccl) for the real 2-GPU memory/throughput
     numbers (peak-memory instrumentation itself is also still TODO in
     `train_fsdp.py`) before checking this box. See README.md Results.
-- [ ] Tensor + pipeline parallelism
+- [x] Tensor + pipeline parallelism
+  - Phase 4a (TP): code + local correctness test done: `train_tp.py` +
+    `src/tensor_parallel.py` use the REAL `torch.distributed.tensor`
+    (DTensor) `ColwiseParallel`/`RowwiseParallel` + `DeviceMesh` API
+    (Megatron-style head-/hidden-dim sharding), not a hand-rolled stand-in.
+    TinyGPT's `nn.MultiheadAttention` can't be targeted by this API (fused
+    `in_proj_weight`, not separate Linear submodules), so a
+    numerically-equivalent `TPTinyGPT` rewrite (explicit wq/wk/wv/wo
+    Linears) was built instead -- see `src/tensor_parallel.py`'s module
+    docstring for the empirical investigation. `tests/test_train_tp.py`
+    (real 2- and 3-process `gloo` runs via `torch.multiprocessing.spawn`):
+    each rank's local sharded-parameter count matches an independently
+    computed exact expectation, every rank sees bit-identical per-step loss
+    (the opposite invariant from DDP/FSDP, since TP replicates data and
+    shards the model), and final trained weights match an independent
+    single-process TinyGPT reference to within ~3e-7. Ready-to-run remote
+    script: `notebooks/kaggle_tp_2gpu.py`.
+  - Phase 4b (PP): code + local correctness test done: `train_pp.py` +
+    `src/pipeline_model.py` use the REAL `torch.distributed.pipelining`
+    (`PipelineStage` + `ScheduleGPipe`), splitting TinyGPT's actual,
+    unmodified transformer blocks across ranks by LAYER (no architecture
+    rewrite needed, unlike TP, since PP splits at layer boundaries).
+    `tests/test_train_pp.py` (real 2- and 3-process `gloo` runs): verifies
+    disjoint/contiguous layer ranges, each rank's local parameter count
+    against an independently-computed expectation, final trained weights
+    match an independent single-process reference (max abs diff observed:
+    5.655e-05 at 2 ranks/15 steps, 6.295e-05 at 3 ranks/10 steps), and the
+    world_size=1 degenerate case (a bug found and fixed during this build:
+    with 1 stage, rank 0 is simultaneously first+last, requiring a dedicated
+    `PPSingleStage` module). Ready-to-run remote script:
+    `notebooks/kaggle_pp_2gpu.py`.
+  - Full test suite: 58 passed (`python3 -m pytest tests/ -q`).
+  - TODO: run both on Kaggle (both T4s, nccl) for the real 2-GPU
+    throughput/scaling numbers before treating either as more than a
+    CPU/gloo correctness proof. See README.md Results.
 - [ ] Profiling (scaling efficiency, comms overhead, memory)
 - [ ] Honest writeup (2 GPUs, not a cluster)

@@ -1,0 +1,3 @@
+[rank 0] all local grads populated: True, max grad diff vs reference: 5.588e-09
+[rank 1] pipelined mean_loss=2.703153 ref_loss=2.703153 logits match ref: True (max diff 0.000e+00)
+[rank 1] all local grads populated: True, max grad diff vs reference: 2.980e-08

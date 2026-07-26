@@ -1,0 +1,5 @@
+[rank 0] all local params got grads: True
+[rank 0] grad max abs diff vs reference (this stage's params): 7.451e-09
+[rank 1] pipelined mean loss=2.634733 vs ref loss=2.634733
+[rank 1] all local params got grads: True
+[rank 1] grad max abs diff vs reference (this stage's params): 1.490e-08

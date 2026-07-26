@@ -1,0 +1,8 @@
+[rank 0] wq.weight is DTensor=True global_shape=(32, 32) LOCAL shard output dim=16 (full d_model=32, expected local=16)
+[rank 0] sharded TP forward matches reference: True (max diff 3.576e-07)
+[rank 0] loss before step: tp=3.084616 ref=3.084616
+[rank 0] post-1-step forward matches reference: True (max diff 8.047e-07)
+[rank 1] wq.weight is DTensor=True global_shape=(32, 32) LOCAL shard output dim=16 (full d_model=32, expected local=16)
+[rank 1] sharded TP forward matches reference: True (max diff 3.576e-07)
+[rank 1] loss before step: tp=3.084616 ref=3.084616
+[rank 1] post-1-step forward matches reference: True (max diff 8.047e-07)

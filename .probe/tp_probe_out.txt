@@ -1,0 +1,10 @@
+[rank 0] TP forward OK, out shape torch.Size([2, 8])
+[rank 1] TP forward OK, out shape torch.Size([2, 8])
+[W725 16:54:37.723587000 ProcessGroup.cpp:398] Warning: At the time of process termination, there are still 1 unwaited collective calls. Please review your program to ensure that:
+1. c10d_functional.wait_tensor() is invoked on all tensors returned from c10d_functional collective,
+2. c10d_functional.wait_tensor() is invoked on all output tensors of async_op=True torch.distributed collective called under `with allow_inflight_collective_as_graph_input_ctx():`,
+before the output tensors of the collective are used. (function ~WorkRegistry)
+[W725 16:54:37.723585000 ProcessGroup.cpp:398] Warning: At the time of process termination, there are still 1 unwaited collective calls. Please review your program to ensure that:
+1. c10d_functional.wait_tensor() is invoked on all tensors returned from c10d_functional collective,
+2. c10d_functional.wait_tensor() is invoked on all output tensors of async_op=True torch.distributed collective called under `with allow_inflight_collective_as_graph_input_ctx():`,
+before the output tensors of the collective are used. (function ~WorkRegistry)

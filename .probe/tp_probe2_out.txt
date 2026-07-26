@@ -1,0 +1,14 @@
+/Users/shivangraval/Downloads/distributed-training-lab/.probe/tp_probe2.py:65: UserWarning: Parallelize plan key 'in_proj_weight' could not be resolved: no submodule matching token 'in_proj_weight' in module MultiheadAttention(
+  (out_proj): NonDynamicallyQuantizableLinear(in_features=8, out_features=8, bias=True)
+), skipping this plan entry.
+  parallelize_module(mha, mesh, plan2)
+/Users/shivangraval/Downloads/distributed-training-lab/.probe/tp_probe2.py:65: UserWarning: Parallelize plan key 'in_proj_weight' could not be resolved: no submodule matching token 'in_proj_weight' in module MultiheadAttention(
+  (out_proj): NonDynamicallyQuantizableLinear(in_features=8, out_features=8, bias=True)
+), skipping this plan entry.
+  parallelize_module(mha, mesh, plan2)
+[rank 0] DTensor-TP numerical match vs reference: True (max abs diff=5.960e-08)
+[rank 0] MultiheadAttention exposes in_proj as nn.Linear submodule? False (in_proj_weight is a raw Parameter: Parameter, shape=(24, 8))
+[rank 0] parallelize_module on 'in_proj_weight' unexpectedly SUCCEEDED
+[rank 1] DTensor-TP numerical match vs reference: True (max abs diff=5.960e-08)
+[rank 1] MultiheadAttention exposes in_proj as nn.Linear submodule? False (in_proj_weight is a raw Parameter: Parameter, shape=(24, 8))
+[rank 1] parallelize_module on 'in_proj_weight' unexpectedly SUCCEEDED
