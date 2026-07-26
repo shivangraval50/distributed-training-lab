@@ -12,3 +12,5 @@ checkpoints/
 *.safetensors
 .env
 .DS_Store
+.build-log.txt
+.claude/settings.json
