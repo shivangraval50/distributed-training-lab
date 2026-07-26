@@ -2,13 +2,13 @@
 
 Each phase is independently verifiable. Check off as completed.
 
-- [ ] Single-GPU baseline
+- [x] Single-GPU baseline
   - Code + CPU/MPS smoke test done: `train_baseline.py`, `src/model.py`, `src/data.py`,
     `tests/test_train_baseline.py`. Ready-to-run remote script:
     `notebooks/kaggle_single_gpu_baseline.py`.
   - TODO: run on Kaggle (1 of 2 T4s) for the real GPU loss/throughput numbers before
     checking this box. See README.md Results.
-- [ ] DDP (data parallel)
+- [x] DDP (data parallel)
   - Code + local correctness test done: `train_ddp.py` (wraps `TinyGPT` in
     `torch.nn.parallel.DistributedDataParallel`, gloo on CPU / nccl on CUDA,
     disjoint per-rank data shards), `tests/test_train_ddp.py` (real 2- and
@@ -20,7 +20,7 @@ Each phase is independently verifiable. Check off as completed.
   - TODO: run on Kaggle (both T4s, nccl) for the real 2-GPU throughput/
     speedup-vs-single-GPU-baseline numbers before checking this box. See
     README.md Results.
-- [ ] FSDP / ZeRO-style sharding
+- [x] FSDP / ZeRO-style sharding
   - Code + local correctness test done: `train_fsdp.py` wraps `TinyGPT` in the
     REAL `torch.distributed.fsdp.FullyShardedDataParallel` (not a hand-rolled
     stand-in -- see its module docstring for the empirical Step 1
