@@ -173,6 +173,69 @@ Phase 4 (tensor + pipeline parallelism) is implemented:
   world_size=1 degenerate case also matches the same reference. Remote
   (real 2-GPU) run: `notebooks/kaggle_pp_2gpu.py`.
 
+Phase 5 (profiling: comms overhead, memory) is implemented:
+
+- `src/profiling.py` -- wraps `torch.profiler.profile(activities=[CPU (+
+  CUDA if available)])` around a block of training and classifies every
+  captured op as communication or compute. The classification rule was
+  built from ACTUAL observed `torch.profiler` event names on this machine
+  (torch 2.13.0, macOS, gloo), not guessed -- see `.probe/profiling_probe*.py`
+  for the raw investigation. Real names found: DDP's gradient allreduce
+  shows up as `c10d::allreduce_` (dispatcher, real self time) and
+  `gloo:all_reduce` (backend op, runs on a separate worker thread -- its
+  own self time is 0, but its `cpu_time_total` is where the real collective
+  cost is); FSDP's all-gather/reduce-scatter show as `c10d::allgather_` /
+  `c10d::_reduce_scatter_base_` / `gloo:all_gather`; PP's real point-to-point
+  transfer shows as `c10d::send` / `c10d::recv_` / `gloo:send` / `gloo:recv`;
+  TP's DTensor-based collectives show as `_c10d_functional::all_reduce` and
+  (importantly -- this is where MOST of TP's real comm time showed up in the
+  probe, ~85% of TP-related self time) `_c10d_functional::wait_tensor`. The
+  classifier matches on the `c10d`/`gloo:` namespace (covers all of the
+  above, including the wait_tensor case) with a keyword fallback
+  (allreduce/all_gather/reduce_scatter/broadcast/send/recv) for names not
+  yet observed. Also captures peak CPU memory (`resource.getrusage(
+  RUSAGE_SELF).ru_maxrss`, verified on this machine to already report BYTES
+  on Darwin, unlike Linux's KB) and peak CUDA memory
+  (`torch.cuda.max_memory_allocated()`, guarded by `torch.cuda.is_available()`
+  so the exact same code path is what will run on Kaggle).
+- `profile_run.py` -- a CLI that reuses each strategy's OWN, UNMODIFIED
+  `train(args)` from `train_baseline.py`/`train_ddp.py`/`train_fsdp.py`/
+  `train_tp.py`/`train_pp.py` (no training loop is reimplemented), wraps the
+  whole call in `src.profiling.profile_call`, and writes a per-rank JSON
+  summary (comm/compute self-time breakdown, comm_fraction, wall time, peak
+  CPU/CUDA memory) to `--out-dir`. For the 4 distributed strategies this
+  needs a real `dist.init_process_group`, exactly like the underlying
+  `train_*.py` scripts (same torchrun/env-var convention).
+- Local CPU/gloo smoke test (the real, checkable claim at this scale --
+  see Results): running all 5 strategies through `profile_run.py` shows
+  `comm_fraction == 0.0` for baseline (zero `torch.distributed` calls, zero
+  comm ops observed) and `comm_fraction > 0.0` for every one of DDP/FSDP/
+  TP/PP, each showing the strategy-specific op names above (not the same
+  generic "some comm happened" -- DDP's top comm op is allreduce/allgather/
+  broadcast, FSDP's is reduce_scatter/allgather/broadcast, PP's is send/recv,
+  TP's is wait_tensor/all_reduce/all_gather_into_tensor). `tests/test_profiling.py`
+  (33 tests): unit tests of the classifier against literal, previously-
+  observed event-name strings; a real 2-process gloo `dist.all_reduce`
+  integration test; and end-to-end `profile_run.py` integration tests
+  (baseline vs DDP) via `torch.multiprocessing.spawn` (same launcher
+  workaround as Phase 2-4, see Limitations).
+- Remote (real 2-GPU) run: `notebooks/kaggle_profiling_2gpu.py` -- runs all
+  5 strategies (baseline pinned to 1 GPU, ddp/fsdp/tp/pp via
+  `torchrun --nproc_per_node=2`/nccl) through `profile_run.py`, refuses to
+  run on anything but exactly 2 GPUs, and assembles per-strategy comms-
+  overhead %, peak CUDA memory, and a throughput-based speedup-vs-baseline
+  number (with an explicit documented caveat: DDP/FSDP's global batch is
+  2x baseline's per step, TP/PP's is not, so this is NOT yet an
+  iso-batch efficiency comparison across strategies).
+
+CPU-only, HONEST scope limit: this phase can only prove the profiler
+correctly DISTINGUISHES communication-heavy strategies from a
+no-communication baseline (a real, checkable claim, verified above) -- it
+cannot produce a meaningful scaling-efficiency, comms-overhead-%, or
+memory-savings NUMBER, since that requires actual multi-GPU throughput/
+memory. No such number exists anywhere in this repo yet; `notebooks/
+kaggle_profiling_2gpu.py` is ready but has not been executed.
+
 ## Results
 | Metric | Value |
 | ------ | ----- |
@@ -187,6 +250,8 @@ Phase 4 (tensor + pipeline parallelism) is implemented:
 | TP 2xT4 GPU (Kaggle) throughput/scaling | TODO -- not yet measured. Script is ready: `notebooks/kaggle_tp_2gpu.py`. |
 | PP CPU/gloo correctness (2 and 3 ranks, 10-15 steps, real `PipelineStage` + `ScheduleGPipe`) | Verified: layer ranges disjoint/contiguous across ranks; each rank's local parameter count matched an independently computed expectation (summing exactly to the full model's count, no replication); final trained per-stage weights matched an independent single-process reference to within 5.655e-05 (2 ranks, 15 steps) / 6.295e-05 (3 ranks, 10 steps); world_size=1 degenerate case also verified. See `tests/test_train_pp.py`. |
 | PP 2xT4 GPU (Kaggle) throughput/pipeline-bubble overlap | TODO -- not yet measured; no wall-clock overlap benefit has been measured even locally (2 CPU processes, blocking gloo P2P) -- that's a Kaggle-only question. Script is ready: `notebooks/kaggle_pp_2gpu.py`. |
+| Profiling CPU/gloo classifier check (2 ranks, 15 steps, 28,288-param model, one real run via `.probe/profile_run_smoke.py`) | Verified the classifier genuinely distinguishes strategies: baseline `comm_fraction=0.0000` (0 comm ops observed) vs DDP `comm_fraction=0.0069-0.0074` (top ops: `c10d::broadcast_`/`allreduce_`/`allgather_`), FSDP `comm_fraction=0.0114-0.0116` (top ops: `broadcast_`/`allgather_`/`_reduce_scatter_base_`), TP `comm_fraction=0.1843-0.1929` (top op: `_c10d_functional::wait_tensor`), PP `comm_fraction=0.0058-0.0068` (top ops: `send`/`recv_`). These are CPU/gloo self-time fractions on a tiny model over 15 steps -- real, reproducible per-run, but noisy and NOT a GPU comms-overhead number; see `tests/test_profiling.py` for the pytest-checked version (33 tests). |
+| Profiling 2xT4 GPU (Kaggle) comms-overhead %/peak-memory/scaling-efficiency | TODO -- not yet measured; requires real multi-GPU throughput/memory, meaningless on CPU. Script is ready: `notebooks/kaggle_profiling_2gpu.py`. |
 
 ## Limitations / what's unrealistic
 - Small scale by design: ~28K-param toy transformer locally, a few hundred K
@@ -284,3 +349,40 @@ Phase 4 (tensor + pipeline parallelism) is implemented:
   lookup, so `mp.spawn` was used instead for local verification. This is a
   launcher-level sandbox quirk, not a bug in `train_tp.py`/`train_pp.py`'s
   distributed logic.
+- Phase 5 (profiling) can only prove the comm-vs-compute CLASSIFIER is
+  correct on CPU/gloo, not report any real scaling-efficiency, comms-
+  overhead-%, or memory-savings number -- those require actual multi-GPU
+  throughput/memory (>1 real GPU), which this machine doesn't have.
+  `notebooks/kaggle_profiling_2gpu.py` is written and ready but has not
+  been executed; do not read any 2xT4 profiling number into this repo
+  until it has.
+- Phase 5's classifier uses `self_cpu_time_total` per op name (standard
+  torch.profiler convention -- avoids double-counting nested parent/child
+  calls on the same thread), summed per comm/compute category. One
+  documented quirk found while investigating this (see
+  `src/profiling.py`'s module docstring and `.probe/profiling_probe2.py`):
+  gloo's own backend collective op (e.g. `gloo:all_reduce`) runs on a
+  separate worker thread and reports `self_cpu_time_total == 0` for
+  itself -- the real collective cost instead shows up as the *calling*
+  thread's `c10d::allreduce_` self time (the blocking wait). The
+  namespace-based classification rule (match on `c10d`/`gloo:`) correctly
+  buckets both under "comm" regardless of which one carries the nonzero
+  self time, but a naive keyword-only classifier that only checked, say,
+  `gloo:all_reduce`'s OWN self time would have badly undercounted DDP's
+  real comm cost.
+- Because `profile_run.py` profiles an ENTIRE `train(args)` call (not just
+  the per-step forward/backward/optimizer.step loop), the reported
+  `comm_fraction` includes one-time collectives too -- e.g. DDP/FSDP/TP's
+  constructor-time weight broadcast and their end-of-run cross-rank
+  correctness `all_gather` -- not a "pure per-step steady-state" number.
+  This is disclosed rather than silently averaged away; at `--steps 15`
+  used for the local smoke test, these one-time costs are a
+  non-negligible fraction of the total, which is part of why (along with
+  small-model CPU noise) the reported `comm_fraction` numbers above should
+  be read as "the classifier works and ranks strategies in a sane order",
+  not as a precise per-step comms-overhead percentage.
+- Peak CPU memory (`resource.getrusage(RUSAGE_SELF).ru_maxrss`) is a
+  process-lifetime historical high-water mark, not resettable -- so
+  `profile_run.py`'s "before"/"after" pair still reports two valid
+  absolute peaks, not an isolated per-call delta the way the CUDA peak
+  (which IS reset before each profiled call) does.

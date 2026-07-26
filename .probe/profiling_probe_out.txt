@@ -1,0 +1,48 @@
+
+=== rank 0: ALL 46 distinct event names (name, count, self_cpu_us, total_cpu_us) ===
+'gloo:all_reduce'                                            count=   3 self_cpu_time_total_us=       0.0 cpu_time_total_us=     936.6
+'DistributedDataParallel.forward'                            count=   3 self_cpu_time_total_us=      98.0 cpu_time_total_us=     466.4
+'aten::linear'                                               count=   3 self_cpu_time_total_us=     180.0 cpu_time_total_us=     368.4
+'autograd::engine::evaluate_function: torch::autograd::AccumulateGrad' count=   6 self_cpu_time_total_us=      21.8 cpu_time_total_us=     295.8
+'c10d::allreduce_'                                           count=   3 self_cpu_time_total_us=     244.9 cpu_time_total_us=     244.9
+'aten::addmm'                                                count=   3 self_cpu_time_total_us=     174.8 cpu_time_total_us=     180.5
+'Optimizer.step#SGD.step'                                    count=   3 self_cpu_time_total_us=      62.8 cpu_time_total_us=      67.4
+'aten::mean'                                                 count=   3 self_cpu_time_total_us=       7.2 cpu_time_total_us=      43.4
+'aten::div_'                                                 count=   3 self_cpu_time_total_us=      23.7 cpu_time_total_us=      29.7
+'autograd::engine::evaluate_function: AddmmBackward0'        count=   3 self_cpu_time_total_us=       6.3 cpu_time_total_us=      29.4
+'aten::mul'                                                  count=  12 self_cpu_time_total_us=      17.1 cpu_time_total_us=      28.7
+'autograd::engine::evaluate_function: PowBackward0'          count=   3 self_cpu_time_total_us=       5.5 cpu_time_total_us=      28.3
+'autograd::engine::evaluate_function: MeanBackward0'         count=   3 self_cpu_time_total_us=       3.6 cpu_time_total_us=      23.3
+'aten::to'                                                   count=  21 self_cpu_time_total_us=       3.8 cpu_time_total_us=      22.9
+'PowBackward0'                                               count=   3 self_cpu_time_total_us=       4.3 cpu_time_total_us=      22.8
+'Optimizer.zero_grad#SGD.zero_grad'                          count=   3 self_cpu_time_total_us=      22.4 cpu_time_total_us=      22.4
+'MeanBackward0'                                              count=   3 self_cpu_time_total_us=       2.6 cpu_time_total_us=      19.6
+'torch::distributed::reducer::mul_out'                       count=   6 self_cpu_time_total_us=       3.5 cpu_time_total_us=      19.6
+'aten::_to_copy'                                             count=  15 self_cpu_time_total_us=       7.0 cpu_time_total_us=      19.1
+'aten::t'                                                    count=  12 self_cpu_time_total_us=      10.0 cpu_time_total_us=      16.9
+'aten::pow'                                                  count=   6 self_cpu_time_total_us=      13.6 cpu_time_total_us=      15.8
+'aten::copy_'                                                count=  27 self_cpu_time_total_us=      14.9 cpu_time_total_us=      14.9
+'AddmmBackward0'                                             count=   3 self_cpu_time_total_us=       3.9 cpu_time_total_us=      14.7
+'aten::div'                                                  count=   3 self_cpu_time_total_us=       8.7 cpu_time_total_us=      13.6
+'aten::sum'                                                  count=   6 self_cpu_time_total_us=      10.7 cpu_time_total_us=      13.0
+'aten::as_strided'                                           count=  27 self_cpu_time_total_us=      10.7 cpu_time_total_us=      10.7
+'torch::autograd::AccumulateGrad'                            count=   6 self_cpu_time_total_us=       3.3 cpu_time_total_us=       9.5
+'aten::empty_strided'                                        count=  18 self_cpu_time_total_us=       7.5 cpu_time_total_us=       7.5
+'autograd::engine::evaluate_function: TBackward0'            count=   3 self_cpu_time_total_us=       2.8 cpu_time_total_us=       7.3
+'aten::sub'                                                  count=   3 self_cpu_time_total_us=       7.0 cpu_time_total_us=       7.0
+'aten::transpose'                                            count=  12 self_cpu_time_total_us=       3.8 cpu_time_total_us=       6.9
+'torch.distributed.ddp.reducer::copy_bucket_to_grad'         count=   6 self_cpu_time_total_us=       2.3 cpu_time_total_us=       6.3
+'aten::detach'                                               count=   6 self_cpu_time_total_us=       3.7 cpu_time_total_us=       6.2
+'aten::expand'                                               count=   6 self_cpu_time_total_us=       3.7 cpu_time_total_us=       5.2
+'aten::mm'                                                   count=   3 self_cpu_time_total_us=       4.9 cpu_time_total_us=       5.1
+'aten::ones_like'                                            count=   3 self_cpu_time_total_us=       1.9 cpu_time_total_us=       5.1
+'aten::add_'                                                 count=   6 self_cpu_time_total_us=       4.7 cpu_time_total_us=       4.7
+'TBackward0'                                                 count=   3 self_cpu_time_total_us=       1.2 cpu_time_total_us=       4.5
+'aten::empty_like'                                           count=   3 self_cpu_time_total_us=       1.2 cpu_time_total_us=       2.8
+'autograd::engine::evaluate_function: SubBackward0'          count=   3 self_cpu_time_total_us=       2.0 cpu_time_total_us=       2.7
+'detach'                                                     count=   6 self_cpu_time_total_us=       2.5 cpu_time_total_us=       2.5
+'aten::view'                                                 count=   3 self_cpu_time_total_us=       1.9 cpu_time_total_us=       1.9
+'aten::fill_'                                                count=   9 self_cpu_time_total_us=       1.9 cpu_time_total_us=       1.9
+'aten::result_type'                                          count=   6 self_cpu_time_total_us=       0.7 cpu_time_total_us=       0.7
+'SubBackward0'                                               count=   3 self_cpu_time_total_us=       0.6 cpu_time_total_us=       0.6
+'aten::resolve_conj'                                         count=  12 self_cpu_time_total_us=       0.5 cpu_time_total_us=       0.5

@@ -74,5 +74,37 @@ Each phase is independently verifiable. Check off as completed.
   - TODO: run both on Kaggle (both T4s, nccl) for the real 2-GPU
     throughput/scaling numbers before treating either as more than a
     CPU/gloo correctness proof. See README.md Results.
-- [ ] Profiling (scaling efficiency, comms overhead, memory)
+- [x] Profiling (comms-overhead-classifier correctness; scaling efficiency itself is GPU-gated)
+  - Code + local correctness test done: `src/profiling.py` (classifies
+    `torch.profiler` events into communication vs compute, built from
+    ACTUAL observed op names on this machine -- see `.probe/profiling_probe*.py`
+    -- not guessed; also captures peak CPU memory via
+    `resource.getrusage(RUSAGE_SELF).ru_maxrss`, verified to already report
+    bytes on this Darwin machine, and peak CUDA memory guarded by
+    `torch.cuda.is_available()`), `profile_run.py` (CLI that reuses each
+    strategy's own unmodified `train(args)` from
+    `train_baseline.py`/`train_ddp.py`/`train_fsdp.py`/`train_tp.py`/
+    `train_pp.py`, wraps the whole call in one `torch.profiler.profile`
+    capture, writes a per-rank JSON summary). `tests/test_profiling.py` (33
+    tests): unit tests of the classifier against literal previously-
+    observed event-name strings, a real 2-process gloo `dist.all_reduce`
+    integration test, and end-to-end `profile_run.py` integration tests
+    (baseline vs DDP, via `torch.multiprocessing.spawn`) proving
+    `comm_fraction == 0.0` for the no-communication baseline and `> 0.0`
+    for DDP, with the DDP-specific allreduce/allgather/broadcast op names
+    actually present. Same check extended (ad hoc, `.probe/profile_run_smoke.py`)
+    to FSDP (reduce_scatter/allgather), TP (DTensor's `wait_tensor`/
+    `all_reduce`), and PP (send/recv) -- each strategy shows its own
+    distinct real comm pattern, not a generic "some comm happened."
+    Ready-to-run remote script: `notebooks/kaggle_profiling_2gpu.py`.
+  - HONEST SCOPE LIMIT: this phase can only prove the classifier
+    genuinely distinguishes communication-heavy strategies from a
+    no-communication baseline on CPU/gloo (a real, checkable claim,
+    verified above) -- it does NOT and cannot produce a real scaling-
+    efficiency, comms-overhead-%, or memory-savings NUMBER, since that
+    requires actual multi-GPU throughput/memory (>1 real GPU). No such
+    number exists anywhere in this repo. TODO: run
+    `notebooks/kaggle_profiling_2gpu.py` on Kaggle's 2xT4 for the real
+    numbers before treating any scaling-efficiency claim as measured. See
+    README.md Results/Limitations.
 - [ ] Honest writeup (2 GPUs, not a cluster)
