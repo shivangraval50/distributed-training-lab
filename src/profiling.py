@@ -42,7 +42,14 @@ guessed keyword list:
   2. Keyword fallback, for any backend/name not directly observed above
      (e.g. this repo's TODO real nccl run on Kaggle): literal substrings
      "allreduce"/"all_reduce", "all_gather", "reduce_scatter", "broadcast",
-     "send", "recv".
+     "send", "recv" -- but NEVER applied to names in the `aten::`/`prim::`/
+     `prims::` namespaces, since those are PyTorch's own namespaces for
+     purely local tensor kernels and really do contain comm-sounding names
+     that are not communication at all (e.g. `aten::broadcast_to`,
+     `aten::broadcast_tensors`, `prims::broadcast_in_dim` reshape a tensor's
+     *shape* locally, no `torch.distributed` call involved -- verified
+     against this torch build's real op schema registry, and guarded against
+     in `tests/test_profiling.py`).
 Everything else (aten::*, autograd::*, FullyShardedDataParallel.* hooks,
 DDP's reducer bucket bookkeeping, etc.) is classified as "compute" -- this
 includes real local CPU work done ON BEHALF OF a strategy (e.g. DDP's
@@ -83,6 +90,21 @@ _COMM_KEYWORD_SUBSTRINGS = (
     "send", "recv",
 )
 
+# The `_COMM_KEYWORD_SUBSTRINGS` fallback above is a bare-substring match, so
+# on its own it would misclassify real LOCAL (single-device, no wire
+# communication at all) ops that happen to contain one of those words as
+# words -- verified concretely: `aten::broadcast_to`, `aten::broadcast_tensors`,
+# `aten::_sparse_broadcast_to`, `prim::BroadcastSizes`, and
+# `prims::broadcast_in_dim` are all real op names (checked against this
+# torch build's actual op schema registry) that reshape/broadcast a tensor's
+# *shape* locally and never touch `torch.distributed` -- none of them should
+# ever be "comm". PyTorch itself namespaces every genuinely local tensor
+# kernel under `aten::`/`prim::`/`prims::` (this is a structural convention
+# of the framework, not a per-op guess), so the keyword fallback is only
+# trusted for names OUTSIDE those namespaces -- names inside them are always
+# local compute, full stop, even if they contain a comm-sounding keyword.
+_LOCAL_OP_NAMESPACE_PREFIXES = ("aten::", "prim::", "prims::")
+
 
 def is_comm_event(name: str) -> bool:
     """True if this torch.profiler event name is collective communication
@@ -91,6 +113,8 @@ def is_comm_event(name: str) -> bool:
     name_l = name.lower()
     if any(s in name_l for s in _COMM_NAMESPACE_SUBSTRINGS):
         return True
+    if any(name_l.startswith(p) for p in _LOCAL_OP_NAMESPACE_PREFIXES):
+        return False
     return any(k in name_l for k in _COMM_KEYWORD_SUBSTRINGS)
 
 

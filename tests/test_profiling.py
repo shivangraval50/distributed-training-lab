@@ -84,6 +84,23 @@ _REAL_COMPUTE_NAMES = [
 ]
 
 
+# These are real op names too (checked directly against this torch build's
+# op schema registry via `torch._C._jit_get_all_schemas()`, not invented) --
+# they exercise the specific fragility named in this module's docstring: the
+# comm-keyword FALLBACK (used for names outside the c10d/gloo namespace) does
+# bare-substring matching, so without namespace-scoping it would wrongly
+# classify these purely local, single-device shape/broadcast ops as
+# "communication" just because they contain "broadcast" -- none of them ever
+# call into torch.distributed.
+_LOCAL_BROADCAST_SHAPED_COMPUTE_NAMES = [
+    "aten::broadcast_to",
+    "aten::broadcast_tensors",
+    "aten::_sparse_broadcast_to",
+    "prim::BroadcastSizes",
+    "prims::broadcast_in_dim",
+]
+
+
 @pytest.mark.parametrize("name", _REAL_COMM_NAMES)
 def test_is_comm_event_true_for_observed_comm_names(name):
     assert is_comm_event(name) is True
@@ -91,6 +108,17 @@ def test_is_comm_event_true_for_observed_comm_names(name):
 
 @pytest.mark.parametrize("name", _REAL_COMPUTE_NAMES)
 def test_is_comm_event_false_for_observed_compute_names(name):
+    assert is_comm_event(name) is False
+
+
+@pytest.mark.parametrize("name", _LOCAL_BROADCAST_SHAPED_COMPUTE_NAMES)
+def test_is_comm_event_false_for_local_broadcast_shaped_ops(name):
+    """Regression test for a real false-positive found during audit: a naive
+    bare-substring "broadcast" keyword match would misclassify these local
+    (no torch.distributed involved) shape-broadcasting ops as communication.
+    They live in PyTorch's own `aten::`/`prim::`/`prims::` namespaces, which
+    are always local compute -- see `_LOCAL_OP_NAMESPACE_PREFIXES` in
+    src/profiling.py."""
     assert is_comm_event(name) is False
 
 
